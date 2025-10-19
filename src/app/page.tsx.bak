@@ -1,0 +1,567 @@
+'use client';
+
+import { useState, useCallback, useEffect } from 'react';
+import { useDropzone } from 'react-dropzone';
+import Image from 'next/image';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowPathIcon, PhotoIcon } from '@heroicons/react/24/outline';
+import heic2any from 'heic2any';
+
+// Animation variants
+const container = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const item = {
+  hidden: { opacity: 0, y: 20 },
+  show: { 
+    opacity: 1, 
+    y: 0,
+    transition: {
+      duration: 0.5,
+      ease: [0.4, 0, 0.2, 1]
+    }
+  }
+};
+
+const fadeIn = {
+  hidden: { opacity: 0 },
+  show: { 
+    opacity: 1,
+    transition: {
+      duration: 0.6,
+      ease: [0.4, 0, 0.2, 1]
+    }
+  },
+  exit: { opacity: 0 }
+};
+
+interface FileWithPreview {
+  file: File;
+  preview: string | null;
+}
+
+export default function Home() {
+  // State management
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedFiles, setUploadedFiles] = useState<FileWithPreview[]>([]);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [isDragActive, setIsDragActive] = useState(false);
+
+  // Convert HEIC to JPEG blob
+  const convertHeicToJpeg = async (file: File): Promise<Blob> => {
+    try {
+      const jpegBlob = await heic2any({
+        blob: file,
+        toType: 'image/jpeg',
+        quality: 0.8
+      }) as Blob;
+      return jpegBlob;
+    } catch (error) {
+      console.error('Error converting HEIC to JPEG:', error);
+      throw error;
+    }
+  };
+
+  // Create preview URLs with HEIC support
+  const createPreview = async (file: File): Promise<string> => {
+    try {
+      let blob: Blob = file;
+      
+      // Convert HEIC to JPEG if needed
+      if (file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic')) {
+        blob = await convertHeicToJpeg(file);
+      }
+      
+      return URL.createObjectURL(blob);
+    } catch (error) {
+      console.error('Error creating preview:', error);
+      throw error;
+    }
+  };
+
+  // Clean up preview URLs
+  const revokePreview = (preview: string | null) => {
+    if (preview) {
+      URL.revokeObjectURL(preview);
+    }
+  };
+  
+  // Clean up all previews when component unmounts or when we have a new set of files
+  useEffect(() => {
+    return () => {
+      uploadedFiles.forEach(file => {
+        revokePreview(file.preview);
+      });
+    };
+  }, [uploadedFiles]);
+
+  // Handle file selection
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files?.length) {
+      const files = Array.from(event.target.files);
+      setIsUploading(true);
+      setUploadProgress(0);
+      
+      try {
+        // Process files one by one to handle HEIC conversion
+        const processedFiles: Array<{file: File, preview: string | null}> = [];
+        
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          try {
+            const preview = await createPreview(file);
+            processedFiles.push({ file, preview });
+            // Update progress based on processed files
+            const progress = Math.round(((i + 1) / files.length) * 100);
+            setUploadProgress(progress);
+          } catch (error) {
+            console.error(`Error processing file ${file.name}:`, error);
+            processedFiles.push({ file, preview: null });
+          }
+        }
+        
+        setUploadedFiles(prev => [...prev, ...processedFiles]);
+      } catch (error) {
+        console.error('Error processing files:', error);
+      } finally {
+        setIsUploading(false);
+      }
+      
+      // Reset the input value to allow selecting the same file again
+      event.target.value = '';
+    }
+  };
+
+  const handleFeatureClick = (step: number) => {
+    setCurrentStep(step);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const { getRootProps, getInputProps } = useDropzone({
+    onDrop: useCallback(async (acceptedFiles: File[]) => {
+      if (acceptedFiles?.length) {
+        setIsUploading(true);
+        setUploadProgress(0);
+        
+        try {
+          // Process files one by one to handle HEIC conversion
+          const processedFiles: Array<{file: File, preview: string | null}> = [];
+          
+          for (let i = 0; i < acceptedFiles.length; i++) {
+            const file = acceptedFiles[i];
+            try {
+              const preview = await createPreview(file);
+              processedFiles.push({ file, preview });
+              // Update progress based on processed files
+              const progress = Math.round(((i + 1) / acceptedFiles.length) * 100);
+              setUploadProgress(progress);
+            } catch (error) {
+              console.error(`Error processing file ${file.name}:`, error);
+              processedFiles.push({ file, preview: null });
+            }
+          }
+          
+          setUploadedFiles(prev => [...prev, ...processedFiles]);
+        } catch (error) {
+          console.error('Error processing files:', error);
+        } finally {
+          setIsUploading(false);
+        }
+      }
+    }, []),
+    onDragEnter: () => setIsDragActive(true),
+    onDragLeave: () => setIsDragActive(false),
+    accept: {
+      'image/*': ['.jpeg', '.jpg', '.png', '.heic']
+    },
+    multiple: true,
+    noClick: true // Prevent dropzone from opening file dialog on click
+  });
+
+  const handleNextStep = () => {
+    setCurrentStep(prev => Math.min(prev + 1, 3));
+  };
+
+  const handlePrevStep = () => {
+    setCurrentStep(prev => Math.max(prev - 1, 1));
+  };
+
+  // Use top-level motion variants defined above (container, item, fadeIn)
+
+  useEffect(() => {
+    return () => {
+      uploadedFiles.forEach(file => {
+        revokePreview(file.preview);
+      });
+    };
+  }, [uploadedFiles]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-5xl mx-auto">
+        {/* Progress Steps */}
+        <motion.div 
+          className="mb-12"
+          variants={fadeIn}
+          initial="hidden"
+          animate="show"
+        >
+          <nav className="flex items-center justify-center">
+            <motion.ol 
+              className="flex items-center w-full"
+              variants={container}
+              initial="hidden"
+              animate="show"
+            >
+              {[1, 2, 3].map((step) => (
+                <motion.li 
+                  key={step}
+                  className={`flex items-center ${
+                    step < 3 ? 'w-full' : 'flex-shrink-0'
+                  }`}
+                  variants={item}
+                >
+                  <div className="flex flex-col items-center">
+                    <motion.div 
+                      className={`flex items-center justify-center w-10 h-10 rounded-full font-medium text-sm ${
+                        currentStep >= step 
+                          ? 'bg-indigo-600 text-white shadow-lg' 
+                          : 'bg-white border-2 border-gray-200 text-gray-400'
+                      }`}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+                    >
+                      {currentStep > step ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <span>{step}</span>
+                      )}
+                    </motion.div>
+                    <motion.span 
+                      className={`mt-2 text-sm font-medium ${
+                        currentStep >= step ? 'text-indigo-600' : 'text-gray-400'
+                      }`}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.2 }}
+                    >
+                      {step === 1 ? 'Upload' : step === 2 ? 'Organize' : 'Export'}
+                    </motion.span>
+                  </div>
+                  {step < 3 && (
+                    <motion.div 
+                      className={`flex-1 h-1 mx-2 ${
+                        currentStep > step ? 'bg-indigo-600' : 'bg-gray-200'
+                      }`}
+                      initial={{ scaleX: 0, originX: 0 }}
+                      animate={{ 
+                        scaleX: 1,
+                        transition: { delay: 0.3 + (step * 0.1) }
+                      }}
+                    />
+                  )}
+                </motion.li>
+              ))}
+            </motion.ol>
+          </nav>
+        </motion.div>
+
+        {/* Main Content */}
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+          {/* Step 1: Upload */}
+          {currentStep === 1 && (
+            <div className="p-8 text-center">
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Upload Your Photos</h2>
+              <p className="text-gray-600 mb-8">
+                Start by uploading your photos. We'll help you organize them into a beautiful album.
+              </p>
+              
+              <div 
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
+                  isDragActive ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'
+                }`}
+              >
+                <input 
+                  {...getInputProps()}
+                  id="file-upload"
+                  type="file"
+                  className="hidden"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileSelect}
+                />
+                <label 
+                  htmlFor="file-upload" 
+                  className="cursor-pointer"
+                >
+                  <div className="flex flex-col items-center justify-center space-y-4">
+                    <div className="p-3 bg-indigo-100 rounded-full">
+                      <PhotoIcon className="h-8 w-8 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">
+                        <span className="font-medium text-indigo-600 hover:text-indigo-500">
+                          Click to upload
+                        </span>{' '}
+                        or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        PNG, JPG, HEIC up to 10MB
+                      </p>
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              {isUploading && (
+                <motion.div 
+                  className="mt-8"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-700">Uploading...</span>
+                    <span className="text-sm text-gray-500">{Math.round(uploadProgress)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <motion.div 
+                      className="bg-indigo-600 h-2.5 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${uploadProgress}%` }}
+                      transition={{ duration: 0.3, ease: "easeOut" }}
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {uploadedFiles.length > 0 && (
+                <div className="mt-8 text-left">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                    {uploadedFiles.length} {uploadedFiles.length === 1 ? 'Photo' : 'Photos'} Ready
+                  </h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    {uploadedFiles.slice(0, 4).map((file, index) => (
+                      <div key={index} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
+                        <img
+                          src={file.preview ?? ''}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-full object-cover"
+                          onLoad={() => {
+                            // Don't revoke the URL here as we need it for the preview
+                            // It will be cleaned up in the useEffect cleanup
+                          }}
+                        />
+                        {index === 3 && uploadedFiles.length > 4 && (
+                          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                            <span className="text-white font-medium">+{uploadedFiles.length - 4} more</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-8 flex justify-end">
+                <button
+                  onClick={handleNextStep}
+                  disabled={uploadedFiles.length === 0}
+                  className={`px-6 py-2.5 rounded-lg font-medium ${
+                    uploadedFiles.length > 0
+                      ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                  } transition-colors`}
+                >
+                  Continue to Organize
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: Organize */}
+          {currentStep === 2 && (
+            <div className="p-8">
+              <h2 className="text-3xl font-bold text-gray-900 mb-2">Organize Your Album</h2>
+              <p className="text-gray-600 mb-8">
+                Review and organize your photos. You can drag to reorder or remove unwanted photos.
+              </p>
+              
+              <div className="max-h-[60vh] overflow-y-auto pr-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 mb-4">
+                  {uploadedFiles.map((file, index) => (
+                    <div key={`${file.file.name}-${index}`} className="relative group aspect-square rounded-lg overflow-hidden bg-gray-100">
+                      {file.preview ? (
+                        <img
+                          src={file.preview ?? ''}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-full object-cover hover:opacity-90 transition-opacity"
+                          onError={(e) => {
+                            console.error('Failed to load image preview');
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.parentElement!.innerHTML = `
+                              <div class="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-2 text-center">
+                                <PhotoIcon class="h-6 w-6 text-gray-400 mb-1" />
+                                <span class="text-[10px] text-gray-500">Preview error</span>
+                              </div>
+                            `;
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-gray-100 p-1 text-center">
+                          <PhotoIcon className="h-5 w-5 text-gray-400 mb-1" />
+                          <span className="text-[10px] text-gray-500">
+                            {file.file.type === 'image/heic' || file.file.name.toLowerCase().endsWith('.heic')
+                              ? 'Processing...'
+                              : 'No preview'}
+                          </span>
+                        </div>
+                      )}
+                      <button 
+                        className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          // Revoke the object URL before removing the file
+                          revokePreview(file.preview);
+                          setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+                        }}
+                        title="Remove photo"
+                      >
+                        ×
+                      </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between mt-8">
+                <button
+                  onClick={handlePrevStep}
+                  className="px-6 py-2.5 rounded-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors border border-gray-300"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleNextStep}
+                  className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  Continue to Export
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Export */}
+          {currentStep === 3 && (
+            <div className="p-8">
+              <div className="text-center mb-8">
+                <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
+                  <svg className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h2 className="text-3xl font-bold text-gray-900 mb-2">Ready to Create Your Album</h2>
+                <p className="text-gray-600">
+                  Your {uploadedFiles.length} photos are ready to be transformed into a beautiful album.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="bg-gray-50 p-6 rounded-xl">
+                  <h3 className="font-medium text-gray-900 mb-2">Standard Album</h3>
+                  <p className="text-sm text-gray-600 mb-4">Perfect for sharing online or printing at home</p>
+                  <button className="w-full py-2 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                    Create Album
+                  </button>
+                </div>
+                <div className="bg-gray-50 p-6 rounded-xl border-2 border-indigo-500 relative">
+                  <span className="absolute -top-3 left-4 bg-indigo-600 text-white text-xs font-medium px-2.5 py-0.5 rounded-full">
+                    Recommended
+                  </span>
+                  <h3 className="font-medium text-gray-900 mb-2">Premium Album</h3>
+                  <p className="text-sm text-gray-600 mb-4">High-quality prints with premium paper and cover</p>
+                  <button className="w-full py-2 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                    Upgrade to Premium
+                  </button>
+                </div>
+                <div className="bg-gray-50 p-6 rounded-xl">
+                  <h3 className="font-medium text-gray-900 mb-2">Digital Only</h3>
+                  <p className="text-sm text-gray-600 mb-4">Download high-resolution digital files</p>
+                  <button className="w-full py-2 px-4 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                    Download Files
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-between mt-8">
+                <button
+                  onClick={handlePrevStep}
+                  className="px-6 py-2.5 rounded-lg font-medium text-gray-700 hover:bg-gray-100 transition-colors border border-gray-300"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={() => {
+                    // Handle album creation
+                    alert('Album creation in progress!');
+                  }}
+                  className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  Create My Album
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Features Section */}
+        <div className="mt-16 grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Easy Upload</h3>
+            <p className="text-gray-600">
+              Upload photos from your device, Google Photos, or Dropbox in just a few clicks.
+            </p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Smart Organization</h3>
+            <p className="text-gray-600">
+              Our AI automatically groups your photos by date, location, and content.
+            </p>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow">
+            <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Multiple Export Options</h3>
+            <p className="text-gray-600">
+              Download digital copies, order prints, or create a beautiful photo book.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
