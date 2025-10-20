@@ -75,7 +75,7 @@ export default function Home() {
   const [groupedPhotos, setGroupedPhotos] = useState<{[key: string]: FileWithPreview[]}>({});
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isDragActive, setIsDragActive] = useState(false);
-  const [similarityThreshold, setSimilarityThreshold] = useState(80); // Default 80%
+  const [similarityThreshold, setSimilarityThreshold] = useState(80); // Default 80% (0-100 range)
   const [notification, setNotification] = useState<{
     message: string;
     type: 'success' | 'error' | 'info';
@@ -881,21 +881,23 @@ export default function Home() {
                     Similarity Threshold: {similarityThreshold}%
                   </label>
                   <span className="text-sm text-gray-500">
-                    {similarityThreshold < 70 ? 'Larger Groups' : 
-                     similarityThreshold > 90 ? 'More Precise' : 'Balanced'}
+                    {similarityThreshold < 30 ? 'Very Loose' : 
+                     similarityThreshold < 60 ? 'Loose' : 
+                     similarityThreshold < 80 ? 'Balanced' : 
+                     similarityThreshold < 95 ? 'Precise' : 'Very Precise'}
                   </span>
                 </div>
                 <input
                   type="range"
-                  min="50"
-                  max="99"
+                  min="0"
+                  max="100"
                   value={similarityThreshold}
                   onChange={(e) => setSimilarityThreshold(parseInt(e.target.value))}
                   className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
                 <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>Larger Groups</span>
-                  <span>Smaller Groups</span>
+                  <span>0%</span>
+                  <span>100%</span>
                 </div>
                 <p className="mt-2 text-sm text-gray-600">
                   Lower values group more photos together, while higher values require stronger similarity for grouping.
