@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { join } from 'path';
 
 declare global {
   interface Window {
@@ -16,8 +15,6 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowPathIcon, PhotoIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import PhotoSelector from '@/components/PhotoSelector';
-// @ts-ignore - No type definitions available for heic2any
-import * as heic2any from 'heic2any';
 
 // Animation variants
 const container = {
@@ -64,6 +61,7 @@ interface FileWithPreview {
   exif?: any;
   uploadedAt?: string;
   isDuplicate?: boolean;
+  uploadProgress?: number;
 }
 
 export default function Home() {
@@ -94,9 +92,15 @@ export default function Home() {
   const convertHeicToJpg = async (file: File): Promise<File> => {
     if (!isHeicFile(file)) return file;
     
+    // Only run in browser environment
+    if (typeof window === 'undefined') return file;
+    
     console.log(`Converting HEIC file: ${file.name}`);
 
     try {
+      // Dynamically import heic2any only on the client side
+      const heic2any = (await import('heic2any')).default;
+      
       // Use heic2any for HEIC conversion as it's more reliable
       const jpegBlob = await (heic2any as unknown as (options: { blob: Blob, toType: string, quality: number }) => Promise<Blob>)({
         blob: file,
@@ -360,121 +364,172 @@ export default function Home() {
     });
   };
 
-  // Handle file upload
+  // Handle file upload - Sequential processing
   const handleFileUpload = async (files: File[]) => {
     setIsUploading(true);
     setUploadProgress(0);
+    const successfulUploads: Array<{originalName: string; name: string; path: string}> = [];
     
     try {
-      const formData = new FormData();
-      const processedFiles: File[] = [];
-      
-      // Process and convert files
-      for (const file of files) {
-        const processedFile = await processFile(file);
-        formData.append('files', processedFile);
-        processedFiles.push(processedFile);
-      }
-      
-      // Create previews for all files
-      const previews = await Promise.all(
-        processedFiles.map(file => createPreview(file))
-      );
-      
-      // Create file objects with previews
-      const filesWithPreviews = processedFiles.map((file, index) => ({
-        file,
-        preview: previews[index],
-        originalName: files[index].name, // Keep original filename for reference
-        savedName: file.name,
-        path: '',
-        size: file.size,
-        type: file.type,
-        exif: {},
-        uploadedAt: new Date().toISOString()
-      } as FileWithPreview));
-      
-      // Update UI with previews by appending new files to existing ones
-      setUploadedFiles(prevFiles => [...prevFiles, ...filesWithPreviews]);
-      setUploadProgress(50);
-      
-      // Upload to server
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to upload files');
-      }
-      
-      // First, update the state with the new files
-      const newFiles = await new Promise<FileWithPreview[]>((resolve) => {
-        setUploadedFiles(prevFiles => {
-          // Create a map of existing files by original name for quick lookup
-          const existingFilesMap = new Map(prevFiles.map(f => [f.originalName, f]));
+      // Process files one by one
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileProgress = {
+          originalName: file.name,
+          progress: 0,
+          status: 'processing' as 'processing' | 'preview' | 'uploading' | 'completed' | 'error',
+          error: ''
+        };
+
+        try {
+          // Update overall progress based on current file
+          setUploadProgress((i / files.length) * 100);
           
-          // Update the newly uploaded files with server data
-          const updatedNewFiles = filesWithPreviews.map(file => {
-            const serverFile = result.successfulUploads.find(
-              (f: any) => f.originalName === file.originalName
-            );
-            
-            return serverFile 
-              ? { ...file, ...serverFile }
-              : file;
+          // 1. Process file (HEIC to JPG if needed)
+          fileProgress.status = 'processing';
+          const processedFile = await processFile(file);
+          
+          // 2. Create preview
+          fileProgress.status = 'preview';
+          const preview = await createPreview(processedFile);
+          fileProgress.progress = 30;
+          
+          // Create file object with preview
+          const fileWithPreview = {
+            file: processedFile,
+            preview,
+            originalName: file.name,
+            savedName: processedFile.name,
+            path: '',
+            size: processedFile.size,
+            type: processedFile.type,
+            exif: {},
+            uploadedAt: new Date().toISOString(),
+            uploadProgress: 0,
+            status: 'uploading'
+          } as FileWithPreview;
+          
+          // Add to state
+          setUploadedFiles(prev => {
+            // Remove if file with same name already exists
+            const filtered = prev.filter(f => f.originalName !== fileWithPreview.originalName);
+            return [...filtered, fileWithPreview];
           });
           
-          // Create a map of updated files to avoid duplicates
-          const updatedFilesMap = new Map(updatedNewFiles.map(f => [f.originalName, f]));
+          // 3. Upload file
+          fileProgress.status = 'uploading';
+          const formData = new FormData();
+          formData.append('files', processedFile, fileWithPreview.originalName);
           
-          // Merge existing files with updated ones, keeping the order
-          const mergedFiles = [
-            // Keep all existing files that weren't just updated
-            ...prevFiles.filter(f => !updatedFilesMap.has(f.originalName)),
-            // Add all the newly updated files
-            ...updatedNewFiles
-          ];
+          // Track upload progress
+          const xhr = new XMLHttpRequest();
           
-          // Resolve with the new state for the notification
-          resolve(mergedFiles);
-          return mergedFiles;
-        });
-      });
-      
-      setUploadProgress(100);
-      
-      // Count how many files were actually uploaded (not duplicates)
-      const uploadedCount = filesWithPreviews.filter(file => !file.isDuplicate).length;
-      const duplicateCount = filesWithPreviews.length - uploadedCount;
-      
-      let message = '';
-      if (uploadedCount > 0) {
-        message += `Successfully uploaded ${uploadedCount} ${uploadedCount === 1 ? 'photo' : 'photos'}. `;
-      }
-      if (duplicateCount > 0) {
-        message += `Skipped ${duplicateCount} duplicate ${duplicateCount === 1 ? 'file' : 'files'}. `;
-      }
-      message += `Total: ${newFiles.length} ${newFiles.length === 1 ? 'photo' : 'photos'} in gallery.`;
-      
-      showNotification(message, 'success');
+          // Wait for upload to complete
+          await new Promise<void>((resolve, reject) => {
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) {
+                const percentComplete = Math.round((event.loaded / event.total) * 100);
+                // Update progress for current file (30-90% of file's progress)
+                const fileProgressValue = 30 + (percentComplete * 0.6);
+                
+                // Update the specific file's progress
+                setUploadedFiles(prev => 
+                  prev.map(f => 
+                    f.originalName === fileWithPreview.originalName
+                      ? { ...f, uploadProgress: percentComplete }
+                      : f
+                  )
+                );
+                
+                // Update overall progress
+                const baseProgress = (i / files.length) * 100;
+                const currentFileWeight = 100 / files.length;
+                const currentFileProgress = baseProgress + ((fileProgressValue / 100) * currentFileWeight);
+                setUploadProgress(Math.round(currentFileProgress));
+              }
+            };
 
+            xhr.onload = () => {
+              if (xhr.status === 200) {
+                try {
+                  const result = JSON.parse(xhr.responseText);
+                  if (result) {
+                    successfulUploads.push({
+                      originalName: fileWithPreview.originalName,
+                      name: fileWithPreview.savedName,
+                      path: result.path || ''
+                    });
+                    resolve();
+                  } else {
+                    throw new Error('Invalid server response');
+                  }
+                } catch (e) {
+                  reject(new Error('Failed to parse server response'));
+                }
+              } else {
+                reject(new Error(`Server responded with status ${xhr.status}`));
+              }
+            };
+            
+            xhr.onerror = () => reject(new Error('Network error during upload'));
+            xhr.open('POST', '/api/upload', true);
+            xhr.send(formData);
+          });
+          
+          // Mark as completed
+          fileProgress.progress = 100;
+          fileProgress.status = 'completed';
+          
+        } catch (error) {
+          console.error(`Error processing ${file.name}:`, error);
+          fileProgress.status = 'error';
+          fileProgress.error = error instanceof Error ? error.message : 'Upload failed';
+          fileProgress.progress = -1;
+          
+          // Update UI to show error for this file
+          setUploadedFiles(prev => 
+            prev.map(f => 
+              f.originalName === file.name
+                ? { 
+                    ...f, 
+                    uploadProgress: -1,
+                    error: fileProgress.error,
+                    status: 'error' as const
+                  }
+                : f
+            )
+          );
+          
+          // Continue with next file even if one fails
+          continue;
+        } finally {
+          // Update progress after each file is processed
+          const progress = ((i + 1) / files.length) * 100;
+          setUploadProgress(progress);
+        }
+      }
+      
+      // Final completion
+      if (successfulUploads.length === 0) {
+        throw new Error('No files were successfully uploaded');
+      }
+      
+      // Show success message
+      showNotification(
+        `Successfully uploaded ${successfulUploads.length} of ${files.length} files`,
+        successfulUploads.length === files.length ? 'success' : 'info'
+      );
+      
       return {
         success: true,
-        files: newFiles,
-        uploadedCount,
-        duplicateCount
+        files: uploadedFiles,
+        uploadedCount: successfulUploads.length
       };
+      
     } catch (error) {
-      console.error('Error uploading files:', error);
+      console.error('Error in file upload process:', error);
       showNotification(
-        `Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'error'
       );
       throw error;
@@ -511,12 +566,15 @@ export default function Home() {
       
       try {
         await handleFileUpload(acceptedFiles);
+        setUploadProgress(100);
       } catch (error) {
         console.error('Error in file upload:', error);
-        alert(`Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        showNotification(
+          `Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          'error'
+        );
       } finally {
         setIsUploading(false);
-        setUploadProgress(100);
       }
     }, []),
     onDragEnter: () => setIsDragActive(true),
