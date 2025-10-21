@@ -7,7 +7,9 @@ import * as faceapi from '@vladmandic/face-api';
 
 export default function SelectPage() {
   const [groups, setGroups] = useState<any[]>([]);
+  const [allPhotos, setAllPhotos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAllPhotos, setShowAllPhotos] = useState(true);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const router = useRouter();
 
@@ -25,7 +27,49 @@ export default function SelectPage() {
         const result = await response.json();
         
         if (result.success) {
-          setGroups(result.groups);
+          console.log('API Response:', JSON.stringify(result, null, 2));
+          
+          // Store the groups
+          const groups = Array.isArray(result.groups) ? result.groups : [];
+          setGroups(groups);
+          
+          // Extract all unique photos from results
+          const allUniquePhotos = new Map<string, any>();
+          
+          // First, collect all unique photos from the results
+          if (Array.isArray(result.results)) {
+            result.results.forEach((img: any) => {
+              const imgPath = img.path || `/uploads/${img.name}`;
+              if (!allUniquePhotos.has(imgPath)) {
+                allUniquePhotos.set(imgPath, {
+                  ...img,
+                  path: imgPath,
+                  originalName: img.originalName || img.name || 'Unnamed Photo'
+                });
+              }
+            });
+          }
+          
+          // Also check for any images in the groups
+          groups.forEach((group: any) => {
+            if (group.images && Array.isArray(group.images)) {
+              group.images.forEach((img: any) => {
+                const imgPath = img.path || `/uploads/${img.name}`;
+                if (!allUniquePhotos.has(imgPath)) {
+                  allUniquePhotos.set(imgPath, {
+                    ...img,
+                    path: imgPath,
+                    originalName: img.originalName || img.name || 'Unnamed Photo'
+                  });
+                }
+              });
+            }
+          });
+          
+          const uniquePhotos = Array.from(allUniquePhotos.values());
+          setAllPhotos(uniquePhotos);
+          
+          console.log('Total unique photos found:', uniquePhotos.length);
         }
       } catch (error) {
         console.error('Error:', error);
@@ -86,18 +130,24 @@ export default function SelectPage() {
       </div>
 
       <div className="space-y-12">
-        {groups.map((group, groupIndex) => (
+        {groups.map((group, groupIndex) => {
+          // Find all images that belong to this group
+          const groupImages = allPhotos.filter(photo => 
+            group.fileNames.includes(photo.name) || group.fileNames.includes(photo.path?.split('/').pop())
+          );
+          
+          return (
           <div key={groupIndex} className="border rounded-lg overflow-hidden">
             <div className="bg-gray-50 px-4 py-2 border-b">
               <h3 className="font-medium text-gray-700">
-                Group {groupIndex + 1} • {group.images.length} {group.images.length === 1 ? 'photo' : 'photos'}
+                Group {groupIndex + 1} • {group.count || group.fileNames.length} {group.count === 1 ? 'photo' : 'photos'}
                 <span className="ml-2 text-sm text-blue-600">
-                  Best score: {Math.round(group.bestScore)}%
+                  Similarity: {Math.round((group.score || 0) * 100)}%
                 </span>
               </h3>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 p-4">
-              {group.images.map((image: any, imageIndex: number) => (
+              {groupImages.map((image: any, imageIndex: number) => (
                 <div 
                   key={imageIndex}
                   className={`relative group cursor-pointer rounded-md overflow-hidden border-2 ${
@@ -148,6 +198,102 @@ export default function SelectPage() {
           </div>
         ))}
       </div>
+
+      {/* Unique Photos Section - Always show if we have photos */}
+      {allPhotos.length > 0 && (
+      <div className="mt-16">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-gray-800">
+            All Unique Photos
+            <span className="ml-2 text-sm font-normal text-gray-500">
+              ({allPhotos.length} total)
+            </span>
+          </h2>
+          <button
+            onClick={() => setShowAllPhotos(!showAllPhotos)}
+            className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+          >
+            {showAllPhotos ? 'Hide' : 'Show'} All Photos
+            <svg
+              className={`w-4 h-4 ml-1 transition-transform ${showAllPhotos ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+
+        {showAllPhotos && (
+          <div className="bg-white border rounded-lg overflow-hidden">
+            <div className="p-4 border-b">
+              <p className="text-sm text-gray-600">
+                {allPhotos.length} unique photos found
+              </p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4 p-4">
+              {allPhotos.map((photo, index) => (
+                <div 
+                  key={index}
+                  className={`relative group cursor-pointer rounded-md overflow-hidden border-2 ${
+                    selectedImages.has(photo.path) ? 'border-blue-500' : 'border-gray-100'
+                  }`}
+                  onClick={() => toggleSelect(photo.path)}
+                >
+                  <div className="aspect-square relative">
+                    <Image
+                      src={photo.path}
+                      alt={photo.originalName}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 768px) 50vw, 25vw"
+                    />
+                    {selectedImages.has(photo.path) && (
+                      <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center">
+                        <div className="bg-blue-500 text-white rounded-full p-1">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-1 bg-white">
+                    <div className="text-xs text-gray-500 truncate text-center">
+                      {photo.originalName}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* Debug Section */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mt-8 p-4 bg-gray-100 rounded-lg">
+          <h3 className="font-medium text-gray-800 mb-2">Debug Info</h3>
+          <div className="text-sm text-gray-600">
+            <p>Groups: {groups.length}</p>
+            <p>Total Photos: {allPhotos.length}</p>
+            <pre className="mt-2 p-2 bg-white rounded text-xs overflow-auto max-h-40">
+              {JSON.stringify({
+                groups: groups.map(g => ({
+                  id: g.id,
+                  count: g.count,
+                  score: g.score,
+                  fileNames: g.fileNames?.length
+                })),
+                allPhotos: allPhotos.length
+              }, null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
