@@ -1,0 +1,304 @@
+import { NextResponse } from 'next/server';
+import { getImageFingerprint, compareHashes } from '@/app/utils/imageUtils';
+
+interface ImageAnalysis {
+  id: string;                 // Unique identifier for the photo
+  name: string;              // File name
+  originalName: string;      // Original file name
+  path: string;              // Path to the file
+  preview?: string;          // Preview URL if available
+  fingerprint: string;       // Image fingerprint for comparison
+  groupId?: string;          // Group ID if part of a group
+  score?: number;            // Similarity score if applicable
+  size?: number;             // File size in bytes
+  type?: string;             // MIME type
+  lastModified?: number;     // Last modified timestamp
+}
+
+interface AnalyzeRequest {
+  files: Array<{
+    id?: string;            // Unique identifier for the file
+    name: string;          // File name
+    originalName: string;  // Original file name
+    path?: string;         // Path to the file
+    preview?: string;      // Preview URL if available
+    data: string;          // base64 encoded image data
+    size?: number;         // File size in bytes
+    type?: string;         // MIME type
+    lastModified?: number; // Last modified timestamp
+  }>;
+  similarityThreshold?: number; // Value between 0 and 1 (0-100%)
+}
+
+export async function POST(request: Request) {
+  console.log('\n--- Analyze API called ---');
+  
+  try {
+    // Parse request body
+    const body: AnalyzeRequest = await request.json();
+    const { files, similarityThreshold = 0.85 } = body;
+    
+    console.log(`Processing ${files?.length || 0} files with threshold: ${similarityThreshold}`);
+    
+    // Validate request
+    if (!files || !Array.isArray(files)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid request: files array is required' },
+        { status: 400 }
+      );
+    }
+    
+    if (files.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No files provided for analysis' },
+        { status: 400 }
+      );
+    }
+
+    // Step 1: Process all files and calculate fingerprints
+    const processedFiles: Array<{
+      id: string;
+      name: string;
+      originalName: string;
+      path: string;
+      preview?: string;
+      fingerprint: string;
+      size?: number;
+      type?: string;
+      lastModified?: number;
+    }> = [];
+    
+    for (const file of files) {
+      try {
+        if (!file.data) {
+          throw new Error('No image data provided');
+        }
+        
+        const imageBuffer = Buffer.from(file.data, 'base64');
+        if (imageBuffer.length === 0) {
+          throw new Error('Empty image data');
+        }
+        
+        const fingerprint = await getImageFingerprint(imageBuffer);
+        
+        processedFiles.push({
+          id: file.id || `file-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          name: file.name,
+          originalName: file.originalName || file.name,
+          path: file.path || `/uploads/${file.name}`,
+          preview: file.preview,
+          fingerprint,
+          size: file.size,
+          type: file.type,
+          lastModified: file.lastModified
+        });
+        
+      } catch (error) {
+        console.error(`Error processing file ${file.name}:`, error);
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: `Error processing file ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          },
+          { status: 500 }
+        );
+      }
+    }
+    
+    // Step 2: Group similar images
+    const groups: { [key: string]: string[] } = {}; // groupId -> array of file IDs
+    const fileToGroupMap: { [key: string]: string } = {}; // fileId -> groupId
+    let nextGroupId = 1;
+    
+    // Compare all pairs of images
+    for (let i = 0; i < processedFiles.length; i++) {
+      const file1 = processedFiles[i];
+      
+      // If file is not in any group yet, create a new group for it
+      if (!fileToGroupMap[file1.id]) {
+        const groupId = `group-${nextGroupId++}`;
+        groups[groupId] = [file1.id];
+        fileToGroupMap[file1.id] = groupId;
+      }
+      
+      // Compare with all subsequent files
+      for (let j = i + 1; j < processedFiles.length; j++) {
+        const file2 = processedFiles[j];
+        
+        try {
+          const similarity = compareHashes(file1.fingerprint, file2.fingerprint);
+          
+          if (similarity >= similarityThreshold) {
+            const group1 = fileToGroupMap[file1.id];
+            const group2 = fileToGroupMap[file2.id];
+            
+            if (!group1 && !group2) {
+              // Neither file is in a group yet, create a new group
+              const groupId = `group-${nextGroupId++}`;
+              groups[groupId] = [file1.id, file2.id];
+              fileToGroupMap[file1.id] = groupId;
+              fileToGroupMap[file2.id] = groupId;
+            } else if (group1 && !group2) {
+              // Add file2 to file1's group
+              groups[group1].push(file2.id);
+              fileToGroupMap[file2.id] = group1;
+            } else if (!group1 && group2) {
+              // Add file1 to file2's group
+              groups[group2].push(file1.id);
+              fileToGroupMap[file1.id] = group2;
+            } else if (group1 !== group2) {
+              // Merge the two groups
+              const [smallerGroup, largerGroup] = 
+                groups[group1].length < groups[group2].length ? [group1, group2] : [group2, group1];
+              
+              // Move all files from smaller group to larger group
+              for (const fileId of groups[smallerGroup]) {
+                groups[largerGroup].push(fileId);
+                fileToGroupMap[fileId] = largerGroup;
+              }
+              
+              // Remove the smaller group
+              delete groups[smallerGroup];
+            }
+          }
+        } catch (error) {
+          console.error(`Error comparing ${file1.name} with ${file2.name}:`, error);
+          // Continue with other comparisons even if one fails
+        }
+      }
+    }
+    
+    // Step 3: Calculate scores for each group
+    const groupScores: { [key: string]: number } = {};
+    
+    for (const [groupId, fileIds] of Object.entries(groups)) {
+      if (fileIds.length <= 1) continue; // Skip single-image groups
+      
+      let totalSimilarity = 0;
+      let comparisonCount = 0;
+      
+      // Compare all pairs in the group
+      for (let i = 0; i < fileIds.length; i++) {
+        const file1 = processedFiles.find(f => f.id === fileIds[i]);
+        if (!file1) continue;
+        
+        for (let j = i + 1; j < fileIds.length; j++) {
+          const file2 = processedFiles.find(f => f.id === fileIds[j]);
+          if (!file2) continue;
+          
+          try {
+            const similarity = compareHashes(file1.fingerprint, file2.fingerprint);
+            totalSimilarity += similarity;
+            comparisonCount++;
+          } catch (error) {
+            console.error(`Error calculating similarity:`, error);
+          }
+        }
+      }
+      
+      // Calculate average similarity for the group
+      groupScores[groupId] = comparisonCount > 0 ? totalSimilarity / comparisonCount : 0;
+    }
+    
+    // Step 4: Prepare the final response
+    const allPhotos: ImageAnalysis[] = [];
+    const groupedPhotos: ImageAnalysis[] = [];
+    const ungroupedPhotos: ImageAnalysis[] = [];
+    
+    // Create a map for quick lookup
+    const fileMap = new Map(processedFiles.map(file => [file.id, file]));
+    
+    // Process each file into the final format
+    for (const file of processedFiles) {
+      const groupId = fileToGroupMap[file.id];
+      const isGrouped = groupId && groups[groupId]?.length > 1;
+      
+      const photoData: ImageAnalysis = {
+        id: file.id,
+        name: file.name,
+        originalName: file.originalName,
+        path: file.path,
+        preview: file.preview,
+        fingerprint: file.fingerprint,
+        groupId: isGrouped ? groupId : undefined,
+        score: isGrouped ? groupScores[groupId] : undefined,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      };
+      
+      allPhotos.push(photoData);
+      
+      if (isGrouped) {
+        groupedPhotos.push(photoData);
+      } else {
+        ungroupedPhotos.push(photoData);
+      }
+    }
+    
+    // Calculate counts
+    const totalPhotos = allPhotos.length;
+    const groupedCount = groupedPhotos.length;
+    const ungroupedCount = ungroupedPhotos.length;
+    const integrityCheck = totalPhotos === (groupedCount + ungroupedCount);
+    
+    // Format groups for response
+    const formattedGroups = Object.entries(groups)
+      .filter(([_, fileIds]) => fileIds.length > 1) // Only include groups with multiple images
+      .map(([groupId, fileIds]) => ({
+        id: groupId,
+        images: fileIds
+          .map(fileId => allPhotos.find(photo => photo.id === fileId))
+          .filter((photo): photo is ImageAnalysis => photo !== undefined),
+        score: groupScores[groupId] || 0,
+        count: fileIds.length
+      }))
+      .sort((a, b) => b.count - a.count || b.score - a.score); // Sort by count, then by score
+    
+    // Log the results for debugging
+    console.log('Analysis complete. Results:', {
+      totalPhotos,
+      groupedCount,
+      ungroupedCount,
+      groupCount: formattedGroups.length,
+      integrityCheck: {
+        passed: integrityCheck,
+        message: integrityCheck 
+          ? 'Photo counts match: total = grouped + ungrouped'
+          : `Photo count mismatch: total (${totalPhotos}) != grouped (${groupedCount}) + ungrouped (${ungroupedCount})`
+      }
+    });
+    
+    // Return the complete response
+    return NextResponse.json({
+      success: true,
+      data: {
+        allPhotos,
+        groups: formattedGroups,
+        ungroupedPhotos,
+        counts: {
+          total: totalPhotos,
+          grouped: groupedCount,
+          ungrouped: ungroupedCount
+        },
+        integrityCheck: {
+          passed: integrityCheck,
+          message: integrityCheck 
+            ? 'Photo counts match: total = grouped + ungrouped'
+            : `Photo count mismatch: total (${totalPhotos}) != grouped (${groupedCount}) + ungrouped (${ungroupedCount})`
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error in analyze API:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'An unknown error occurred',
+        stack: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.stack : undefined) : undefined
+      },
+      { status: 500 }
+    );
+  }
+}

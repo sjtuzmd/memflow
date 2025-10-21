@@ -71,6 +71,7 @@ export default function Home() {
   const [uploadedFiles, setUploadedFiles] = useState<FileWithPreview[]>([]);
   const [currentStep, setCurrentStep] = useState(1);
   const [groupedPhotos, setGroupedPhotos] = useState<{[key: string]: FileWithPreview[]}>({});
+  const [uniquePhotos, setUniquePhotos] = useState<FileWithPreview[]>([]);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isDragActive, setIsDragActive] = useState(false);
   const [similarityThreshold, setSimilarityThreshold] = useState(80); // Default 80% (0-100 range)
@@ -696,7 +697,18 @@ export default function Home() {
           }
         });
         
+        // Find unique photos (those not in any group)
+        const allGroupedPhotos = new Set<string>();
+        Object.values(formattedGroups).forEach(group => {
+          group.forEach(photo => {
+            allGroupedPhotos.add(photo.savedName);
+          });
+        });
+        
+        const unique = uploadedFiles.filter(photo => !allGroupedPhotos.has(photo.savedName));
+        
         setGroupedPhotos(formattedGroups);
+        setUniquePhotos(unique);
         showNotification('Photos have been grouped by similarity', 'success');
       } else {
         throw new Error(result.error || 'Failed to analyze photos');
@@ -969,6 +981,7 @@ export default function Home() {
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Select Photos to Keep</h2>
               <PhotoSelector
                 groupedPhotos={groupedPhotos}
+                uniquePhotos={uniquePhotos}
                 onSelect={togglePhotoSelection}
                 selectedPhotos={selectedPhotos}
               />
