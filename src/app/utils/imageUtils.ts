@@ -30,9 +30,41 @@ export async function getImageFingerprint(imageBuffer: Buffer): Promise<string> 
 }
 
 export function compareHashes(hash1: string, hash2: string): number {
-  let diff = 0;
-  for (let i = 0; i < hash1.length; i++) {
-    if (hash1[i] !== hash2[i]) diff++;
+  console.log('\n--- Comparing Hashes ---');
+  console.log('Hash 1:', hash1);
+  console.log('Hash 2:', hash2);
+  
+  // Log the 8x8 grid visualization
+  console.log('\n8x8 Grid Visualization:');
+  for (let y = 0; y < 8; y++) {
+    let row1 = '';
+    let row2 = '';
+    for (let x = 0; x < 8; x++) {
+      const idx = y * 8 + x;
+      row1 += hash1[idx] === '1' ? '██' : '  ';
+      row2 += hash2[idx] === '1' ? '██' : '  ';
+    }
+    console.log(`Row ${y+1}: ${row1}  |  ${row2}`);
   }
-  return (hash1.length - diff) / hash1.length; // similarity ratio (0-1)
+  
+  // Calculate differences
+  let diff = 0;
+  const diffPositions: number[] = [];
+  
+  for (let i = 0; i < hash1.length; i++) {
+    if (hash1[i] !== hash2[i]) {
+      diff++;
+      diffPositions.push(i);
+    }
+  }
+  
+  const similarity = (hash1.length - diff) / hash1.length;
+  
+  // Log detailed comparison
+  console.log('\n--- Comparison Results ---');
+  console.log(`Total bits: ${hash1.length}`);
+  console.log(`Differing bits: ${diff} at positions:`, diffPositions);
+  console.log(`Similarity: ${(similarity * 100).toFixed(1)}%`);
+  
+  return similarity;
 }
