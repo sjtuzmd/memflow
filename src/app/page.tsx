@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import * as faceapi from '@vladmandic/face-api';
+import { sortPhotosByScore } from './utils/photoScoring';
 
 type SimilarityAlgorithm = 'grayscale' | 'dhash' | 'color';
 
@@ -75,6 +77,26 @@ export default function Home() {
   const [groupedPhotos, setGroupedPhotos] = useState<{[key: string]: FileWithPreview[]}>({});
   const [uniquePhotos, setUniquePhotos] = useState<FileWithPreview[]>([]);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
+  const [isRanking, setIsRanking] = useState(false);
+  const faceApiModelsLoaded = useRef(false);
+
+  async function loadFaceApiModels() {
+    if (typeof window !== 'undefined' && !faceApiModelsLoaded.current) {
+      try {
+        const modelPath = '/models';
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri(modelPath),
+          faceapi.nets.faceLandmark68Net.loadFromUri(modelPath),
+          faceapi.nets.faceExpressionNet.loadFromUri(modelPath),
+        ]);
+        faceApiModelsLoaded.current = true;
+        console.log('Face API models loaded successfully');
+      } catch (error) {
+        console.error('Error loading Face API models:', error);
+        throw error;
+      }
+    }
+  }
   const [isDragActive, setIsDragActive] = useState(false);
   const [similarityAlgorithm, setSimilarityAlgorithm] = useState<SimilarityAlgorithm>('grayscale');
   const [similarityThreshold, setSimilarityThreshold] = useState(80); // Default 80% (0-100 range)
@@ -1032,6 +1054,62 @@ export default function Home() {
                     Unselect All
                   </button>
                   <button
+                    onClick={async () => {
+                      // Rank photos in each group
+                      try {
+                        setIsRanking(true);
+                        showNotification('Ranking photos... This may take a moment.', 'info');
+                        
+                        // Process each group
+                        const updatedGroups: { [key: string]: FileWithPreview[] } = {};
+                        
+                        // Load face-api models if not already loaded
+                        if (!faceApiModelsLoaded.current) {
+                          await loadFaceApiModels();
+                          faceApiModelsLoaded.current = true;
+                        }
+                        
+                        for (const [groupKey, groupPhotos] of Object.entries(groupedPhotos)) {
+                          if (groupPhotos.length <= 1) {
+                            updatedGroups[groupKey] = groupPhotos; // No need to rank single-photo groups
+                            continue;
+                          }
+                          
+                          try {
+                            // Sort photos by score
+                            const sortedPhotos = await sortPhotosByScore(
+                              groupPhotos.map(photo => `/uploads/${photo.savedName}`)
+                            );
+                            
+                            // Map back to original photo objects
+                            updatedGroups[groupKey] = sortedPhotos.map(({ path }) => {
+                              const fileName = path.split('/').pop() || '';
+                              return groupPhotos.find(p => p.savedName === fileName) || groupPhotos[0];
+                            });
+                          } catch (error) {
+                            console.error(`Error ranking group ${groupKey}:`, error);
+                            // If ranking fails for a group, keep the original order
+                            updatedGroups[groupKey] = [...groupPhotos];
+                          }
+                        }
+                        
+                        // Update state with ranked groups
+                        setGroupedPhotos(updatedGroups);
+                        showNotification('Photos ranked successfully!', 'success');
+                        
+                      } catch (error) {
+                        console.error('Error ranking photos:', error);
+                        showNotification('Failed to rank photos. Please try again.', 'error');
+                      } finally {
+                        setIsRanking(false);
+                      }
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium text-green-600 bg-green-50 rounded-md hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={isRanking}
+                  >
+                    {isRanking ? 'Ranking...' : 'Rank'}
+                  </button>
+                  <button
                     onClick={() => {
                       // Delete all unselected photos
                       const allPhotos = [
@@ -1085,15 +1163,6 @@ export default function Home() {
                     className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
                   >
                     Delete Unselected
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Placeholder for rank functionality
-                      showNotification('Ranking feature coming soon!', 'info');
-                    }}
-                    className="px-3 py-1.5 text-sm font-medium text-purple-600 bg-purple-50 rounded-md hover:bg-purple-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
-                  >
-                    Rank
                   </button>
                 </div>
               </div>

@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Uploads
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Model files (these are large and should be downloaded as needed)
+public/models/*.bin
+public/models/*.json
+
+# Scripts
+download-*.ps1
+
+# IDE
+.vscode/
+.idea/
