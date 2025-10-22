@@ -18,6 +18,7 @@ interface AnalyzeRequest {
     data: string; // base64 encoded image data
   }>;
   similarityThreshold?: number; // Value between 0 and 1
+  algorithm?: 'grayscale' | 'dhash' | 'color';
 }
 
 export async function POST(request: Request) {
@@ -28,7 +29,8 @@ export async function POST(request: Request) {
     const body: AnalyzeRequest = await request.json();
     console.log('Request body received with files count:', body.files?.length || 0);
     
-    const { files, similarityThreshold = 0.85 } = body;
+    const { files, similarityThreshold = 0.85, algorithm = 'grayscale' } = body;
+    console.log('Using algorithm:', algorithm);
     console.log('Using similarity threshold:', similarityThreshold);
     
     if (!files || !Array.isArray(files)) {
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
             throw new Error('Empty image data');
           }
           
-          fingerprint = await getImageFingerprint(imageBuffer);
+          fingerprint = await getImageFingerprint(imageBuffer, algorithm);
           console.log('Fingerprint calculated');
           
           // Store the processed file data

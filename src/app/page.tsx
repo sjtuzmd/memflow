@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useEffect } from 'react';
 
+type SimilarityAlgorithm = 'grayscale' | 'dhash' | 'color';
+
 declare global {
   interface Window {
     electron?: {
@@ -74,6 +76,7 @@ export default function Home() {
   const [uniquePhotos, setUniquePhotos] = useState<FileWithPreview[]>([]);
   const [selectedPhotos, setSelectedPhotos] = useState<Set<string>>(new Set());
   const [isDragActive, setIsDragActive] = useState(false);
+  const [similarityAlgorithm, setSimilarityAlgorithm] = useState<SimilarityAlgorithm>('grayscale');
   const [similarityThreshold, setSimilarityThreshold] = useState(80); // Default 80% (0-100 range)
   const [notification, setNotification] = useState<{
     message: string;
@@ -659,7 +662,8 @@ export default function Home() {
         },
         body: JSON.stringify({ 
           files: validFiles,
-          similarityThreshold: similarityThreshold / 100 // Convert to 0-1 range
+          similarityThreshold: similarityThreshold / 100, // Convert to 0-1 range
+          algorithm: similarityAlgorithm // Include the selected algorithm
         })
       });
 
@@ -972,6 +976,30 @@ export default function Home() {
                 <p className="mt-2 text-sm text-gray-600">
                   Lower values group more photos together, while higher values require stronger similarity for grouping.
                 </p>
+              </div>
+              
+              {/* Algorithm Selection */}
+              <div className="w-full max-w-2xl mx-auto mt-4 p-4 bg-white rounded-lg shadow">
+                <div className="mb-2">
+                  <label htmlFor="algorithm" className="block text-sm font-medium text-gray-700 mb-1">
+                    Similarity Algorithm
+                  </label>
+                  <select
+                    id="algorithm"
+                    value={similarityAlgorithm}
+                    onChange={(e) => setSimilarityAlgorithm(e.target.value as 'grayscale' | 'dhash' | 'color')}
+                    className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                  >
+                    <option value="grayscale">Grayscale 8x8 (Default)</option>
+                    <option value="dhash">Difference Hash (dHash)</option>
+                    <option value="color">Color-Sensitive Hashing</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {similarityAlgorithm === 'grayscale' && 'Fast grayscale comparison using 8x8 pixels'}
+                    {similarityAlgorithm === 'dhash' && 'Better edge detection with difference hashing'}
+                    {similarityAlgorithm === 'color' && 'Color-aware comparison using RGB channels'}
+                  </p>
+                </div>
               </div>
             </div>
           )}

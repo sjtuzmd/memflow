@@ -68,11 +68,22 @@ export async function POST(request: Request) {
           // Check for duplicates before processing
           const existingFiles = await readdir(uploadDir);
           
-          // Find first matching file (if any)
+          // Check if a file with the same name already exists (case-insensitive)
           let existingMatch: string | null = null;
+          
           for (const existingFileName of existingFiles) {
             if (existingFileName === '.metadata.json') continue;
             
+            // First check if filenames (without extension) match (case-insensitive)
+            const existingName = existingFileName.replace(/\.[^/.]+$/, '').toLowerCase();
+            const newName = file.name.replace(/\.[^/.]+$/, '').toLowerCase();
+            
+            if (existingName === newName) {
+              existingMatch = existingFileName;
+              break;
+            }
+            
+            // If filenames don't match, check if files are identical
             try {
               const existingFilePath = join(uploadDir, existingFileName);
               const existingFileData = await readFile(existingFilePath);
@@ -80,14 +91,13 @@ export async function POST(request: Request) {
               // Compare file sizes first (quick check)
               if (existingFileData.length !== bufferData.length) continue;
               
-              // If sizes match, compare content
-              if (bufferData.equals(existingFileData)) {
+              // If sizes match, do a full binary comparison
+              if (existingFileData.equals(bufferData)) {
                 existingMatch = existingFileName;
                 break;
               }
             } catch (e) {
               console.error(`Error checking file ${existingFileName}:`, e);
-              continue;
             }
           }
           
@@ -110,8 +120,11 @@ export async function POST(request: Request) {
                                (file.name.toLowerCase().endsWith('.heic') || 
                                 file.name.toLowerCase().endsWith('.heif'));
           
+          // Get the base name without extension
+          const baseName = file.name.replace(/\.[^/.]+$/, '');
+          // Use .jpg for HEIC conversions, otherwise keep original extension
           const ext = isConvertedJpg ? '.jpg' : extname(file.name).toLowerCase();
-          const finalFileName = `${uuidv4()}${ext}`;
+          const finalFileName = `${baseName}${ext}`;
           const filePath = join(uploadDir, finalFileName);
           
           // Store original filename in metadata

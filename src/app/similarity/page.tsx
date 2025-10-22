@@ -9,6 +9,8 @@ type ImageFile = {
   preview: string;
 };
 
+type SimilarityAlgorithm = 'grayscale' | 'dhash' | 'color';
+
 export default function SimilarityPage() {
   const [images, setImages] = useState<ImageFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,6 +18,8 @@ export default function SimilarityPage() {
   const [selected2, setSelected2] = useState<string>('');
   const [similarity, setSimilarity] = useState<number | null>(null);
   const [comparing, setComparing] = useState(false);
+  const [algorithm, setAlgorithm] = useState<SimilarityAlgorithm>('grayscale');
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   // Fetch all images from the server
   useEffect(() => {
@@ -40,6 +44,8 @@ export default function SimilarityPage() {
     if (!selected1 || !selected2) return;
     
     setComparing(true);
+    setDebugInfo('Starting comparison...\n');
+    
     try {
       const response = await fetch('/api/compare', {
         method: 'POST',
@@ -49,12 +55,31 @@ export default function SimilarityPage() {
         body: JSON.stringify({
           image1: selected1,
           image2: selected2,
+          algorithm,
+          debug: true
         }),
       });
 
+      const data = await response.json();
+      
       if (response.ok) {
-        const data = await response.json();
         setSimilarity(data.similarity);
+        
+        // Update debug info if available
+        if (data.debug) {
+          setDebugInfo(prev => 
+            `${prev}\n--- Server Debug Info ---\n${data.debug}\n\nComparison complete!`
+          );
+        } else {
+          setDebugInfo(prev => 
+            `${prev}\nComparison complete! Similarity: ${(data.similarity * 100).toFixed(2)}%`
+          );
+        }
+      } else {
+        setDebugInfo(prev => 
+          `${prev}\nError: ${data.error || 'Failed to compare images'}`
+        );
+        setSimilarity(null);
       }
     } catch (error) {
       console.error('Error comparing images:', error);
@@ -141,35 +166,67 @@ export default function SimilarityPage() {
             </div>
           </div>
 
-          <div className="flex justify-center">
-            <button
-              onClick={handleCompare}
-              disabled={!selected1 || !selected2 || comparing}
-              className={`px-6 py-2 rounded-md text-white font-medium ${
-                !selected1 || !selected2 || comparing
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700'
-              }`}
-            >
-              {comparing ? 'Comparing...' : 'Compare Images'}
-            </button>
+          <div className="mt-6 space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Algorithm</label>
+              <select
+                value={algorithm}
+                onChange={(e) => setAlgorithm(e.target.value as SimilarityAlgorithm)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={comparing}
+              >
+                <option value="grayscale">Grayscale 8x8 (Default)</option>
+                <option value="dhash">Difference Hash (dHash)</option>
+                <option value="color">Color-Sensitive Hashing</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                {algorithm === 'grayscale' && 'Fast grayscale comparison using 8x8 pixels'}
+                {algorithm === 'dhash' && 'Better edge detection with difference hashing'}
+                {algorithm === 'color' && 'Color-aware comparison using RGB channels'}
+              </p>
+            </div>
+
+            <div className="flex justify-center pt-2">
+              <button
+                onClick={handleCompare}
+                disabled={!selected1 || !selected2 || comparing}
+                className={`px-6 py-2 rounded-md text-white font-medium ${
+                  !selected1 || !selected2 || comparing
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {comparing ? 'Comparing...' : 'Compare Images'}
+              </button>
+            </div>
           </div>
 
           {similarity !== null && (
-            <div className="mt-8 text-center">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Similarity Result</h3>
-              <div className="bg-gray-100 p-4 rounded-md inline-block">
-                <span className="text-3xl font-bold text-blue-600">
-                  {(similarity * 100).toFixed(1)}%
-                </span>
-                <p className="text-sm text-gray-500 mt-1">
-                  {similarity >= 0.8
-                    ? 'Very similar'
-                    : similarity >= 0.6
-                    ? 'Somewhat similar'
-                    : 'Not very similar'}
-                </p>
+            <div className="mt-8">
+              <div className="text-center mb-6">
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Similarity Result</h3>
+                <div className="bg-gray-100 p-4 rounded-md inline-block">
+                  <span className="text-3xl font-bold text-blue-600">
+                    {(similarity * 100).toFixed(1)}%
+                  </span>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {similarity >= 0.8
+                      ? 'Very similar'
+                      : similarity >= 0.6
+                      ? 'Somewhat similar'
+                      : 'Not very similar'}
+                  </p>
+                </div>
               </div>
+              
+              {debugInfo && (
+                <div className="mt-6 p-4 bg-gray-50 rounded-md border border-gray-200">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Debug Information</h4>
+                  <pre className="text-xs text-gray-600 bg-white p-3 rounded border border-gray-200 overflow-auto max-h-60">
+                    {debugInfo}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
