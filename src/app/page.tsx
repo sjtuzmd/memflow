@@ -1006,7 +1006,97 @@ export default function Home() {
 
           {currentStep === 2 && (
             <div className="p-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">Select Photos to Keep</h2>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Select Photos to Keep</h2>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      // Select all photos
+                      const allPhotoKeys = new Set([
+                        ...Object.values(groupedPhotos).flat().map(p => p.savedName),
+                        ...uniquePhotos.map(p => p.savedName)
+                      ]);
+                      setSelectedPhotos(allPhotoKeys);
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Unselect all photos
+                      setSelectedPhotos(new Set());
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Unselect All
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Delete all unselected photos
+                      const allPhotos = [
+                        ...Object.values(groupedPhotos).flat(),
+                        ...uniquePhotos
+                      ];
+                      const photosToDelete = allPhotos.filter(
+                        photo => !selectedPhotos.has(photo.savedName)
+                      );
+                      
+                      if (photosToDelete.length === 0) {
+                        showNotification('No unselected photos to delete', 'info');
+                        return;
+                      }
+                      
+                      if (window.confirm(`Are you sure you want to delete ${photosToDelete.length} unselected photos?`)) {
+                        const deletedKeys = new Set(photosToDelete.map(p => p.savedName));
+                        
+                        // Update uploaded files
+                        setUploadedFiles(prev => 
+                          prev.filter(file => !deletedKeys.has(file.savedName))
+                        );
+                        
+                        // Update grouped photos
+                        const newGroupedPhotos = { ...groupedPhotos };
+                        for (const groupId in newGroupedPhotos) {
+                          newGroupedPhotos[groupId] = newGroupedPhotos[groupId].filter(
+                            photo => !deletedKeys.has(photo.savedName)
+                          );
+                          
+                          // Remove empty groups
+                          if (newGroupedPhotos[groupId].length <= 1) {
+                            delete newGroupedPhotos[groupId];
+                          }
+                        }
+                        
+                        // Update unique photos
+                        const newUniquePhotos = uniquePhotos.filter(
+                          photo => !deletedKeys.has(photo.savedName)
+                        );
+                        
+                        setGroupedPhotos(newGroupedPhotos);
+                        setUniquePhotos(newUniquePhotos);
+                        
+                        // Clear selection
+                        setSelectedPhotos(new Set());
+                        
+                        showNotification(`Deleted ${photosToDelete.length} unselected photos`, 'success');
+                      }
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                  >
+                    Delete Unselected
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Placeholder for rank functionality
+                      showNotification('Ranking feature coming soon!', 'info');
+                    }}
+                    className="px-3 py-1.5 text-sm font-medium text-purple-600 bg-purple-50 rounded-md hover:bg-purple-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                  >
+                    Rank
+                  </button>
+                </div>
+              </div>
               <PhotoSelector
                 groupedPhotos={groupedPhotos}
                 uniquePhotos={uniquePhotos}
