@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Face-API.js Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; }
+    #status { 
+      margin: 20px 0; 
+      padding: 10px; 
+      border: 1px solid #ddd; 
+      border-radius: 4px; 
+      white-space: pre-wrap;
+      font-family: monospace;
+      background: #f8f9fa;
+    }
+    .success { color: #28a745; }
+    .error { color: #dc3545; }
+    .warning { color: #ffc107; }
+    canvas { 
+      border: 1px solid #ddd; 
+      margin: 10px 0; 
+      display: block;
+      background: #f8f9fa;
+    }
+  </style>
+</head>
+<body>
+  <h1>Face-API.js Test</h1>
+  <p>This is a minimal test page for Face-API.js</p>
+  <div id="status">Initializing...</div>
+  <canvas id="testCanvas" width="300" height="300"></canvas>
+
+  <!-- Load TensorFlow.js with WebGL backend -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <!-- Load Face-API.js with compatible version -->
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.6.9/dist/face-api.min.js"></script>
+  
+  <script>
+    const statusEl = document.getElementById('status');
+    const canvas = document.getElementById('testCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Simple logging function
+    function log(message, type = 'info') {
+      const time = new Date().toLocaleTimeString();
+      const prefix = type === 'error' ? '❌ ' : type === 'success' ? '✓ ' : type === 'warning' ? '⚠️ ' : '';
+      const className = type !== 'info' ? ` class="${type}"` : '';
+      statusEl.innerHTML += `<p${className}>[${time}] ${prefix}${message}</p>`;
+      console[type === 'error' ? 'error' : type === 'warning' ? 'warn' : 'log'](`[${time}] ${message}`);
+      statusEl.scrollTop = statusEl.scrollHeight;
+    }
+
+    // Draw a simple face
+    function drawTestFace() {
+      // Clear canvas
+      ctx.fillStyle = 'white';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw face
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(150, 150, 100, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      // Draw eyes
+      ctx.fillStyle = 'black';
+      ctx.fillRect(110, 110, 30, 30); // Left eye
+      ctx.fillRect(160, 110, 30, 30); // Right eye
+      
+      // Draw mouth (smile)
+      ctx.beginPath();
+      ctx.arc(150, 180, 50, 0, Math.PI);
+      ctx.stroke();
+    }
+
+    // Main test function with step-by-step testing
+    async function runTest() {
+      try {
+        // Test 1: Check TensorFlow.js
+        log('1. Checking TensorFlow.js...');
+        if (typeof tf === 'undefined') {
+          throw new Error('TensorFlow.js not loaded');
+        }
+        
+        // Set WebGL backend
+        log('Setting WebGL backend...');
+        try {
+          await tf.setBackend('webgl');
+          log(`✓ Using backend: ${tf.getBackend()}`, 'success');
+        } catch (e) {
+          log(`⚠️ Could not set WebGL backend: ${e.message}. Falling back to default.`, 'warning');
+        }
+        
+        log(`✓ TensorFlow.js version: ${tf.version.tfjs}`, 'success');
+        
+        // Initialize face-api.js
+        log('Initializing face-api.js...');
+        await faceapi.tf.setBackend('webgl');
+        await faceapi.tf.enableProdMode();
+        await faceapi.tf.ENV.set('DEBUG', false);
+        await faceapi.tf.ready();
+        log('✓ face-api.js initialized', 'success');
+
+        // Test 2: Check Face-API.js
+        log('\n2. Checking Face-API.js...');
+        if (typeof faceapi === 'undefined') {
+          throw new Error('Face-API.js not loaded');
+        }
+        log('✓ Face-API.js loaded', 'success');
+
+        // Draw test face
+        log('\n3. Drawing test face...');
+        drawTestFace();
+        log('✓ Test face drawn', 'success');
+
+        // Test 3: Load TinyFaceDetector model
+        log('\n4. Loading TinyFaceDetector model...');
+        try {
+          // In v1.6.9, models are loaded differently
+          await faceapi.nets.tinyFaceDetector.load('https://justadudewhohacks.github.io/face-api.js/models');
+          log('✓ TinyFaceDetector model loaded', 'success');
+        } catch (e) {
+          log(`❌ Failed to load TinyFaceDetector: ${e.message}`, 'error');
+          throw e;
+        }
+
+        // Test 4: Try face detection with a timeout
+        log('\n5. Testing face detection...');
+        try {
+          const detectionPromise = faceapi.detectAllFaces(
+            canvas, 
+            new faceapi.TinyFaceDetectorOptions({
+              inputSize: 320,
+              scoreThreshold: 0.5
+            })
+          );
+          
+          // Add a timeout to prevent hanging
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Face detection timed out after 10 seconds')), 10000)
+          );
+          
+          const detections = await Promise.race([detectionPromise, timeoutPromise]);
+          
+          if (detections.length > 0) {
+            log(`✓ Detected ${detections.length} face(s)`, 'success');
+            log(`First detection score: ${detections[0].score.toFixed(4)}`, 'info');
+          } else {
+            log('ℹ️ No faces detected (this might be expected with a simple drawing)', 'warning');
+          }
+          
+        } catch (e) {
+          log(`❌ Face detection failed: ${e.message}`, 'error');
+          console.error('Detection error:', e);
+          throw e;
+        }
+        
+        log('\n✅ All tests completed successfully!', 'success');
+        
+      } catch (error) {
+        log(`\n❌ Test failed: ${error.message}`, 'error');
+        console.error('Test error details:', error);
+        
+        // Additional debug info
+        if (error.message.includes('d is not a function')) {
+          log('\n⚠️ This error usually indicates a version mismatch between TensorFlow.js and Face-API.js', 'warning');
+          log('Trying to load models with different options...', 'info');
+          
+          try {
+            // Try with a different model loading approach
+            log('Attempting alternative model loading...');
+            await faceapi.nets.tinyFaceDetector.load();
+            log('Alternative model loading successful!', 'success');
+            log('Please note: You might need to adjust your model loading code in the main application.', 'info');
+          } catch (e) {
+            log(`Alternative loading failed: ${e.message}`, 'error');
+          }
+        }
+      }
+    }
+
+    // Start the test when the page loads
+    document.addEventListener('DOMContentLoaded', () => {
+      log('DOM loaded, starting test...');
+      runTest();
+    });
+  </script>
+</body>
+</html>

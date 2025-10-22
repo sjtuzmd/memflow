@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photo Score</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f7fa;
+      color: #333;
+    }
+    
+    .photo-selector {
+      margin: 20px 0;
+    }
+    
+    .photo-selector select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      font-size: 16px;
+      margin-bottom: 15px;
+    }
+    h1, h2, h3 {
+      color: #2c3e50;
+    }
+    .container {
+      display: flex;
+      gap: 30px;
+      margin-top: 20px;
+    }
+    .upload-section {
+      flex: 1;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    .score-section {
+      flex: 1;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    #imagePreview {
+      max-width: 100%;
+      max-height: 400px;
+      margin-top: 20px;
+      border-radius: 4px;
+      display: none;
+    }
+    .file-upload {
+      margin: 20px 0;
+      padding: 20px;
+      border: 2px dashed #ddd;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .file-upload:hover {
+      border-color: #3498db;
+      background-color: #f8f9fa;
+    }
+    .file-upload input[type="file"] {
+      display: none;
+    }
+    .score-card {
+      margin: 15px 0;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border-left: 4px solid #3498db;
+    }
+    .score-metrics {
+      margin-top: 15px;
+    }
+    .score-item {
+      display: flex;
+      justify-content: space-between;
+      margin: 8px 0;
+      padding: 8px;
+      background: #f1f3f5;
+      border-radius: 4px;
+    }
+    .score-value {
+      font-weight: bold;
+    }
+    .overall-score {
+      font-size: 1.5em;
+      text-align: center;
+      margin: 20px 0;
+      padding: 20px;
+      background: #e8f4fd;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    .loading {
+      display: none;
+      text-align: center;
+      margin: 20px 0;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .error {
+      color: #e74c3c;
+      margin: 10px 0;
+      padding: 10px;
+      background: #fde8e8;
+      border-radius: 4px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Photo Score Analyzer</h1>
+  <p>Upload a photo to analyze and score its quality based on various factors.</p>
+  
+  <div class="container">
+    <div class="upload-section">
+      <h2>Select Photo</h2>
+      
+      <div class="photo-selector">
+        <select id="photoSelect">
+          <option value="">-- Select a photo to analyze --</option>
+          <!-- Photos will be populated here -->
+        </select>
+      </div>
+      
+      <div id="errorMessage" class="error"></div>
+      <div id="imageContainer" style="position: relative; margin: 20px 0;">
+        <img id="imagePreview" alt="Preview" style="max-width: 100%; max-height: 400px; display: none;">
+      </div>
+      <div class="loading" id="loadingIndicator" style="display: none;">
+        <div class="spinner"></div>
+        <p>Analyzing photo...</p>
+      </div>
+    </div>
+    
+    <div class="score-section">
+      <h2>Photo Analysis</h2>
+      <div id="scoreResults" style="display: none;">
+        <div class="overall-score">
+          Overall Score: <span id="overallScore">0</span>/100
+        </div>
+        
+        <h3>Detailed Scores</h3>
+        <div class="score-metrics" id="scoreMetrics">
+          <!-- Scores will be populated here -->
+        </div>
+        
+        <h3>Analysis</h3>
+        <div id="analysisText">
+          <!-- Analysis text will be populated here -->
+        </div>
+      </div>
+      
+      <div id="noPhotoSelected">
+        <p>Please select a photo to see the analysis.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load TensorFlow.js and Face-API.js -->
+  <script>
+    // Set environment variables before loading tfjs
+    window.tfjsGlobals = {
+      disableWarnings: true,
+      debug: false,
+      IS_TEST: true
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+  <script>
+    // Configure face-api to use the same tf instance
+    window.faceapi = window.faceapi || {};
+    window.faceapi.tf = window.tf;
+    
+    // Disable verbose logging
+    if (window.tf && window.tf.ENV) {
+      window.tf.ENV.set('DEBUG', false);
+      window.tf.ENV.set('IS_TEST', true);
+      window.tf.ENV.set('WEBGL_CPU_FORWARD', false);
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.6.9/dist/face-api.min.js"></script>
+  
+  <script>
+    // Photo scoring implementation
+    // This is a simplified version of the TypeScript implementation for client-side use
+
+    // Photo score result interface
+    const PhotoScoreResult = {
+      faceDetected: false,
+      smileScore: 0,      // 0 to 1
+      eyesOpen: false,
+      faceAreaRatio: 0,   // 0 to 1
+      blurScore: 0,       // 0 = blurry, 1 = sharp
+      finalScore: 0       // weighted score
+    };
+
+    // Weightings for the final score calculation
+    const SCORE_WEIGHTS = {
+      smile: 0.4,          // Increased weight for smiles
+      eyesOpen: 0.2,       // Moderate weight for open eyes
+      faceArea: 0.2,       // Moderate weight for face size
+      blur: 0.2,           // Moderate weight for image sharpness
+    };
+
+    /**
+     * Loads an image from a URL or data URL and returns it as an HTMLImageElement
+     */
+    async function loadImage(source) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = (e) => reject(new Error(`Failed to load image: ${e}`));
+        img.src = source;
+      });
+    }
+
+    /**
+     * Calculates a blur score using a simplified approach
+     * @param {ImageData} imageData Image data from a canvas
+     * @returns A blur score between 0 (blurry) and 1 (sharp)
+     */
+    function calculateBlurScore(imageData) {
+      try {
+        const width = imageData.width;
+        const height = imageData.height;
+        const data = imageData.data;
+
+        // Simple edge detection using Laplacian operator
+        let edgeIntensity = 0;
+        const laplacianKernel = [0, 1, 0, 1, -4, 1, 0, 1, 0];
+
+        // Sample points to reduce computation
+        const step = Math.max(1, Math.floor(width * height / 1000));
+        let samples = 0;
+
+        for (let y = 1; y < height - 1; y += step) {
+          for (let x = 1; x < width - 1; x += step) {
+            const idx = (y * width + x) * 4;
+            let sum = 0;
+
+            // Simple 3x3 Laplacian kernel
+            for (let ky = -1; ky <= 1; ky++) {
+              for (let kx = -1; kx <= 1; kx++) {
+                const kidx = ((y + ky) * width + (x + kx)) * 4;
+                const kernelIdx = (ky + 1) * 3 + (kx + 1);
+                const weight = laplacianKernel[kernelIdx] || 0;
+
+                // Convert to grayscale using luminance
+                const r = data[kidx];
+                const g = data[kidx + 1];
+                const b = data[kidx + 2];
+                const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+
+                sum += gray * weight;
+              }
+            }
+
+            edgeIntensity += Math.abs(sum);
+            samples++;
+          }
+        }
+
+        // Normalize the edge intensity
+        edgeIntensity /= samples * 255; // Normalize to 0-1 range
+
+        // Apply a sigmoid function to get a 0-1 score
+        const score = 1 / (1 + Math.exp(-10 * (edgeIntensity - 0.1)));
+
+        return Math.min(Math.max(score, 0), 1);
+      } catch (error) {
+        console.error('Error calculating blur score:', error);
+        return 0.5; // Default to neutral score on error
+      }
+    }
+
+    // Make scorePhoto available globally
+    window.scorePhoto = async function(imageSource) {
+      try {
+        // Load the image
+        const img = await loadImage(
+          imageSource instanceof File ? URL.createObjectURL(imageSource) : imageSource
+        );
+
+        // Create a canvas to work with the image
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('Could not create canvas context');
+        }
+
+        // Set canvas dimensions to match the image
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+
+        // Draw the image on the canvas
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Get image data for blur detection
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // Calculate blur score
+        const blurScore = calculateBlurScore(imageData);
+
+        // Detect faces with optimized parameters
+        const detections = await faceapi.detectAllFaces(img, 
+          new faceapi.TinyFaceDetectorOptions({
+            inputSize: 416,        // Higher values = more accurate but slower (128-608)
+            scoreThreshold: 0.5    // 0.1 to 0.9, higher means more strict detection
+          })
+        ).withFaceLandmarks().withFaceExpressions();
+        
+        // Filter out low confidence detections
+        const filteredDetections = detections.filter(d => d.detection.score >= 0.1);
+        
+        // Simple NMS implementation
+        const finalDetections = [];
+        const usedIndices = new Set();
+        
+        // Sort by score in descending order
+        filteredDetections.sort((a, b) => b.detection.score - a.detection.score);
+        
+        for (let i = 0; i < filteredDetections.length; i++) {
+          if (usedIndices.has(i)) continue;
+          
+          const current = filteredDetections[i];
+          finalDetections.push(current);
+          
+          // Mark overlapping detections
+          for (let j = i + 1; j < filteredDetections.length; j++) {
+            if (usedIndices.has(j)) continue;
+            
+            const other = filteredDetections[j];
+            const iou = calculateIOU(current.detection.box, other.detection.box);
+            
+            if (iou > 0.4) {  // NMS threshold
+              usedIndices.add(j);
+            }
+          }
+        }
+
+        if (detections.length === 0) {
+          // No faces detected
+          return {
+            faceDetected: false,
+            smileScore: 0,
+            eyesOpen: false,
+            faceAreaRatio: 0,
+            blurScore,
+            finalScore: 0, // No face means low score
+          };
+        }
+
+        // For now, just analyze the first face
+        const face = detections[0];
+
+        // Calculate face area ratio (face area / image area)
+        const faceBox = face.detection.box;
+        const faceArea = faceBox.width * faceBox.height;
+        const imageArea = canvas.width * canvas.height;
+        const faceAreaRatio = Math.min(faceArea / imageArea, 0.5) * 2; // Normalize to 0-1 range, cap at 0.5
+
+        // Get expression scores
+        const expressions = face.expressions;
+        const smileScore = expressions.happy || 0;
+
+        // Check if eyes are open using landmarks
+        let eyesOpen = true;
+        if (face.landmarks) {
+          const leftEye = face.landmarks.getLeftEye();
+          const rightEye = face.landmarks.getRightEye();
+
+          // Simple eye openness check based on eye aspect ratio (EAR)
+          const getEAR = (eye) => {
+            // Compute the euclidean distances between the two sets of
+            // vertical eye landmarks (x, y)-coordinates
+            const A = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
+            const B = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
+
+            // Compute the euclidean distance between the horizontal
+            // eye landmark (x, y)-coordinates
+            const C = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
+
+            // Compute the eye aspect ratio
+            return (A + B) / (2.0 * C);
+          };
+
+          const leftEAR = getEAR(leftEye);
+          const rightEAR = getEAR(rightEye);
+          const ear = (leftEAR + rightEAR) / 2.0;
+
+          // Threshold for eye closed (adjust as needed)
+          eyesOpen = ear > 0.25;
+        }
+
+        // Calculate final weighted score using the updated weight names
+        const finalScore =
+          smileScore * SCORE_WEIGHTS.smile +           // 40% weight
+          (eyesOpen ? SCORE_WEIGHTS.eyesOpen : 0) +    // 20% weight
+          faceAreaRatio * SCORE_WEIGHTS.faceArea +     // 20% weight
+          blurScore * SCORE_WEIGHTS.blur;              // 20% weight
+
+        return {
+          faceDetected: true,
+          smileScore,
+          eyesOpen,
+          faceAreaRatio,
+          blurScore,
+          finalScore,
+        };
+      } catch (error) {
+        console.error('Error scoring photo:', error);
+        // Return a default low score on error
+        return {
+          faceDetected: false,
+          smileScore: 0,
+          eyesOpen: false,
+          faceAreaRatio: 0,
+          blurScore: 0,
+          finalScore: 0,
+        };
+      }
+    };
+  </script>
+  
+  <script>
+    // DOM Elements
+    const photoSelect = document.getElementById('photoSelect');
+    let imagePreview = document.getElementById('imagePreview');
+    
+    // Ensure elements exist
+    if (!photoSelect || !imagePreview) {
+      console.error('Required DOM elements not found');
+    }
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const errorMessage = document.getElementById('errorMessage');
+    const scoreResults = document.getElementById('scoreResults');
+    const noPhotoSelected = document.getElementById('noPhotoSelected');
+    const overallScore = document.getElementById('overallScore');
+    const scoreMetrics = document.getElementById('scoreMetrics');
+    const analysisText = document.getElementById('analysisText');
+    
+    // List of available photos (will be fetched from the server)
+    let availablePhotos = [];
+
+    // Fetch available photos from the server
+    async function fetchAvailablePhotos() {
+      try {
+        const response = await fetch('/api/images');
+        if (response.ok) {
+          const data = await response.json();
+          availablePhotos = data.images.map(img => img.name);
+          populatePhotoDropdown();
+        } else {
+          console.error('Failed to fetch images:', response.statusText);
+        }
+      } catch (error) {
+        console.error('Error fetching images:', error);
+      }
+    }
+
+    // Initialize face-api.js models
+    async function loadModels() {
+      try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+        await faceapi.nets.faceExpressionNet.loadFromUri('https://justadudewhohacks.github.io/face-api.js/models');
+        console.log('Face detection models loaded');
+      } catch (error) {
+        console.error('Error loading models:', error);
+        throw new Error('Failed to load face detection models');
+      }
+    }
+
+    // Create a canvas with willReadFrequently flag
+    function createCanvas() {
+      const canvas = document.createElement('canvas');
+      canvas.willReadFrequently = true;
+      return canvas;
+    }
+
+    // Function to populate photo dropdown
+    function populatePhotoDropdown() {
+      const select = document.getElementById('photoSelect');
+      
+      // Clear existing options except the first one
+      while (select.options.length > 1) {
+        select.remove(1);
+      }
+      
+      // Add photos to dropdown
+      availablePhotos.forEach(filename => {
+        if (filename && typeof filename === 'string') {  // Ensure filename is valid
+          const option = document.createElement('option');
+          option.value = filename;
+          option.textContent = filename;
+          select.appendChild(option);
+        }
+      });
+    }
+    
+    // Function to draw face detection boxes on the canvas
+    function drawFaceDetections(canvas, detections, scaleX = 1, scaleY = 1, offsetX = 0, offsetY = 0) {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      // Clear any previous drawings
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Set default font for labels
+      ctx.font = '12px Arial';
+      
+      // Draw each face detection
+      detections.forEach(detection => {
+        const box = detection.detection.box;
+        
+        // Ensure box coordinates are valid numbers
+        if (isNaN(box.x) || isNaN(box.y) || isNaN(box.width) || isNaN(box.height)) {
+          console.warn('Invalid box coordinates:', box);
+          return;
+        }
+        
+        // Scale and position the box coordinates
+        const scaledBox = {
+          x: (box.x * scaleX) + offsetX,
+          y: (box.y * scaleY) + offsetY,
+          width: box.width * scaleX,
+          height: box.height * scaleY
+        };
+        
+        // Only draw if the box is within the canvas bounds
+        if (scaledBox.x + scaledBox.width < 0 || 
+            scaledBox.y + scaledBox.height < 0 || 
+            scaledBox.x > canvas.width || 
+            scaledBox.y > canvas.height) {
+          return;
+        }
+        
+        // Draw face rectangle
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(
+          Math.max(0, scaledBox.x),
+          Math.max(0, scaledBox.y),
+          Math.min(scaledBox.width, canvas.width - scaledBox.x),
+          Math.min(scaledBox.height, canvas.height - scaledBox.y)
+        );
+        
+        // Draw label background
+        const label = `Face (${(detection.detection.score * 100).toFixed(1)}%)`;
+        const textWidth = ctx.measureText(label).width;
+        const textHeight = parseInt(ctx.font, 10);
+        
+        // Calculate text position (above the face box, centered horizontally)
+        const textX = Math.max(0, Math.min(
+          scaledBox.x + (scaledBox.width - textWidth) / 2,
+          canvas.width - textWidth - 4
+        ));
+        
+        const textY = Math.max(0, scaledBox.y - textHeight - 6);
+        
+        // Draw semi-transparent background for text
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(textX - 2, textY - 2, textWidth + 4, textHeight + 4);
+        
+        // Draw label text
+        ctx.fillStyle = '#fff';
+        ctx.textBaseline = 'top';
+        ctx.fillText(label, textX, textY);
+      });
+    }
+
+    // Display the analysis results
+    function displayResults(result, detections = []) {
+      // Hide loading indicator
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      if (loadingIndicator) {
+        loadingIndicator.style.display = 'none';
+      }
+      
+      // Show the results section
+      const scoreResults = document.getElementById('scoreResults');
+      if (scoreResults) {
+        scoreResults.style.display = 'block';
+      }
+      
+      // Hide 'no photo selected' message
+      const noPhotoSelected = document.getElementById('noPhotoSelected');
+      if (noPhotoSelected) {
+        noPhotoSelected.style.display = 'none';
+      }
+      
+      // Update the score display
+      const scoreValue = Math.round(result.finalScore * 100);
+      const overallScore = document.getElementById('overallScore');
+      if (overallScore) {
+        overallScore.textContent = scoreValue;
+      }
+      
+      // Update the score bar
+      const scoreBar = document.querySelector('.score-bar-fill');
+      if (scoreBar) {
+        scoreBar.style.width = `${scoreValue}%`;
+      }
+      
+      // Update the score metrics
+      const metricsHtml = `
+        <div class="score-item">
+          <span>Face Detected</span>
+          <span class="score-value">${result.faceDetected ? 'Yes' : 'No'}</span>
+        </div>
+        <div class="score-item">
+          <span>Smile Score</span>
+          <span class="score-value">${Math.round(result.smileScore * 100)}%</span>
+        </div>
+        <div class="score-item">
+          <span>Eyes Open</span>
+          <span class="score-value">${result.eyesOpen ? 'Yes' : 'No'}</span>
+        </div>
+        <div class="score-item">
+          <span>Face Size</span>
+          <span class="score-value">${Math.round(result.faceAreaRatio * 100)}%</span>
+        </div>
+        <div class="score-item">
+          <span>Sharpness</span>
+          <span class="score-value">${Math.round(result.blurScore * 100)}%</span>
+        </div>
+      `;
+      
+      const scoreMetrics = document.getElementById('scoreMetrics');
+      if (scoreMetrics) {
+        scoreMetrics.innerHTML = metricsHtml;
+      }
+      
+      // Update the analysis text
+      let analysisText = '';
+      if (!result.faceDetected) {
+        analysisText = 'No face detected in the photo. Try taking a clearer picture with better lighting.';
+      } else {
+        analysisText = 'Photo analysis complete. ';
+        if (result.smileScore > 0.7) {
+          analysisText += 'Great smile! ';
+        } else if (result.smileScore > 0.3) {
+          analysisText += 'Try smiling more for a better score. ';
+        } else {
+          analysisText += 'A smile would improve your score. ';
+        }
+        
+        if (!result.eyesOpen) {
+          analysisText += 'Make sure your eyes are open. ';
+        }
+        
+        if (result.blurScore < 0.5) {
+          analysisText += 'The image is somewhat blurry - try holding the camera steady. ';
+        }
+      }
+      
+      const analysisElement = document.getElementById('analysisText');
+      if (analysisElement) {
+        analysisElement.textContent = analysisText;
+      }
+      
+      // Draw face detections if any
+      const imageContainer = document.getElementById('imageContainer');
+      const imagePreview = document.getElementById('imagePreview');
+      
+      if (detections.length > 0 && imagePreview && imageContainer && imagePreview.complete) {
+        // Remove any existing canvas
+        const existingCanvas = imageContainer.querySelector('canvas');
+        if (existingCanvas) {
+          imageContainer.removeChild(existingCanvas);
+        }
+        
+        // Create new canvas for detections
+        const canvas = document.createElement('canvas');
+        canvas.id = 'detectionCanvas';
+        canvas.style.position = 'absolute';
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.pointerEvents = 'none';
+        
+        // Add canvas to container
+        imageContainer.appendChild(canvas);
+        
+        // Get the displayed image dimensions and position
+        const displayRect = imagePreview.getBoundingClientRect();
+        const containerRect = imageContainer.getBoundingClientRect();
+        
+        // Calculate the offset of the image within its container
+        const offsetX = displayRect.left - containerRect.left;
+        const offsetY = displayRect.top - containerRect.top;
+        
+        // Set canvas dimensions to match container (not image)
+        canvas.width = containerRect.width;
+        canvas.height = containerRect.height;
+        
+        // Calculate scaling factors
+        const scaleX = imagePreview.naturalWidth / displayRect.width;
+        const scaleY = imagePreview.naturalHeight / displayRect.height;
+        
+        // Get the context
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Clear previous drawings
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw face detections with proper scaling and positioning
+          drawFaceDetections(
+            canvas, 
+            detections,
+            1/scaleX,  // Scale down from original to displayed size
+            1/scaleY,
+            offsetX,    // Position within container
+            offsetY
+          );
+        }
+      }
+    }
+
+    // Handle photo selection and analysis
+    async function analyzeSelectedPhoto(photoFilename) {
+      try {
+        hideError();
+        loadingIndicator.style.display = 'block';
+        imagePreview.style.display = 'none';
+        scoreResults.style.display = 'none';
+        
+        // Create the full path to the photo
+        const photoPath = `./uploads/${photoFilename}`;
+        
+        // Create a new image element to avoid caching issues
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        img.onload = async () => {
+          try {
+            // Set the image preview
+            const imageContainer = document.getElementById('imageContainer');
+            if (imageContainer) {
+              // Clear any existing canvas
+              const existingCanvas = imageContainer.querySelector('canvas');
+              if (existingCanvas) {
+                imageContainer.removeChild(existingCanvas);
+              }
+            }
+            
+            // Set image source and show it
+            imagePreview.src = img.src;
+            imagePreview.style.display = 'block';
+            
+            // Make sure the image is fully loaded before proceeding
+            await new Promise((resolve) => {
+              if (imagePreview.complete) {
+                resolve();
+              } else {
+                imagePreview.onload = resolve;
+              }
+            });
+            
+            imagePreview.style.maxWidth = '100%';
+            imagePreview.style.height = 'auto';
+            
+            // Create a canvas to work with the image
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) {
+              throw new Error('Could not create canvas context');
+            }
+            
+            // Set canvas dimensions to match the image
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            
+            // Draw the image on the canvas
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            // Get image data for blur detection
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Calculate blur score
+            const blurScore = calculateBlurScore(imageData);
+            
+            // Detect faces with optimized parameters
+            const initialDetections = await faceapi.detectAllFaces(img, 
+              new faceapi.TinyFaceDetectorOptions({
+                inputSize: 416,        // Higher values = more accurate but slower (128-608)
+                scoreThreshold: 0.5    // 0.1 to 0.9, higher means more strict detection
+              })
+            ).withFaceLandmarks().withFaceExpressions();
+            
+            // Filter out low confidence detections
+            const filteredDetections = initialDetections.filter(d => d.detection.score >= 0.1);
+            
+            // Simple NMS implementation
+            const finalDetections = [];
+            const usedIndices = new Set();
+            
+            // Sort by score in descending order
+            filteredDetections.sort((a, b) => b.detection.score - a.detection.score);
+            
+            for (let i = 0; i < filteredDetections.length; i++) {
+              if (usedIndices.has(i)) continue;
+              
+              const current = filteredDetections[i];
+              finalDetections.push(current);
+              
+              // Mark overlapping detections
+              for (let j = i + 1; j < filteredDetections.length; j++) {
+                if (usedIndices.has(j)) continue;
+                
+                const other = filteredDetections[j];
+                const iou = calculateIOU(current.detection.box, other.detection.box);
+                
+                if (iou > 0.4) {  // NMS threshold
+                  usedIndices.add(j);
+                }
+              }
+            }
+            
+            const detections = finalDetections;
+            
+            let result;
+            
+            if (detections.length === 0) {
+              // No faces detected
+              result = {
+                faceDetected: false,
+                smileScore: 0,
+                eyesOpen: false,
+                faceAreaRatio: 0,
+                blurScore,
+                finalScore: 0,
+              };
+            } else {
+              // For now, just analyze the first face
+              const face = detections[0];
+              
+              // Calculate face area ratio (face area / image area)
+              const faceBox = face.detection.box;
+              const faceArea = faceBox.width * faceBox.height;
+              const imageArea = canvas.width * canvas.height;
+              const faceAreaRatio = Math.min(faceArea / imageArea, 0.5) * 2; // Normalize to 0-1 range, cap at 0.5
+              
+              // Get expression scores
+              const expressions = face.expressions;
+              const smileScore = expressions.happy || 0;
+              
+              // Check if eyes are open using landmarks
+              let eyesOpen = true;
+              if (face.landmarks) {
+                const leftEye = face.landmarks.getLeftEye();
+                const rightEye = face.landmarks.getRightEye();
+                
+                // Simple eye openness check based on eye aspect ratio (EAR)
+                const getEAR = (eye) => {
+                  // Compute the euclidean distances between the two sets of
+                  // vertical eye landmarks (x, y)-coordinates
+                  const A = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
+                  const B = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
+                  
+                  // Compute the euclidean distance between the horizontal
+                  // eye landmark (x, y)-coordinates
+                  const C = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
+                  
+                  // Compute the eye aspect ratio
+                  return (A + B) / (2.0 * C);
+                };
+                
+                const leftEAR = getEAR(leftEye);
+                const rightEAR = getEAR(rightEye);
+                const ear = (leftEAR + rightEAR) / 2.0;
+                
+                // Threshold for eye closed (adjust as needed)
+                eyesOpen = ear > 0.25;
+              }
+              
+              // Calculate final weighted score using the updated weight names
+              const finalScore =
+                smileScore * SCORE_WEIGHTS.smile +           // 40% weight
+                (eyesOpen ? SCORE_WEIGHTS.eyesOpen : 0) +    // 20% weight
+                faceAreaRatio * SCORE_WEIGHTS.faceArea +     // 20% weight
+                blurScore * SCORE_WEIGHTS.blur;              // 20% weight
+                
+              result = {
+                faceDetected: true,
+                smileScore,
+                eyesOpen,
+                faceAreaRatio,
+                blurScore,
+                finalScore,
+              };
+            }
+            
+            // Display the results with detections
+            displayResults(result, detections);
+          } catch (error) {
+            console.error('Error analyzing photo:', error);
+            showError('Failed to analyze the photo. ' + (error.message || 'Please try another one.'));
+          } finally {
+            loadingIndicator.style.display = 'none';
+          }
+        };
+        
+        img.onerror = () => {
+          loadingIndicator.style.display = 'none';
+          showError('Failed to load the selected photo.');
+        };
+        
+        // Start loading the image
+        img.src = photoPath;
+      } catch (error) {
+        console.error('Error:', error);
+        loadingIndicator.style.display = 'none';
+        showError('An error occurred while processing the photo: ' + (error.message || 'Unknown error'));
+      }
+    }
+
+    // Initialize the application
+    async function initializeApp() {
+      try {
+        console.log('Initializing application...');
+        
+        // Load models if they haven't been loaded yet
+        if (!window.faceapi.nets.tinyFaceDetector || !window.faceapi.nets.tinyFaceDetector.params) {
+          console.log('Loading face detection models...');
+          await loadModels();
+        }
+        
+        // Fetch and populate photos
+        console.log('Fetching available photos...');
+        await fetchAvailablePhotos();
+        
+        // Show the photo selection UI
+        document.getElementById('noPhotoSelected').style.display = 'block';
+        console.log('Application initialized');
+        
+      } catch (error) {
+        console.error('Initialization error:', error);
+        showError('Failed to initialize: ' + (error.message || 'Unknown error'));
+      }
+    }
+
+    // Event Listeners
+    photoSelect.addEventListener('change', (e) => {
+      if (e.target.value) {
+        analyzeSelectedPhoto(e.target.value);
+      } else {
+        // Reset if "Select a photo" is chosen
+        imagePreview.style.display = 'none';
+        scoreResults.style.display = 'none';
+        noPhotoSelected.style.display = 'block';
+      }
+    });
+    
+
+    // Show error message
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+      setTimeout(() => {
+        errorMessage.style.opacity = '1';
+      }, 10);
+    }
+    
+    // Hide error message
+    function hideError() {
+      errorMessage.style.opacity = '0';
+      setTimeout(() => {
+        errorMessage.style.display = 'none';
+        errorMessage.textContent = '';
+      }, 300);
+    }
+
+    // Start the application when the page loads
+    if (document.readyState === 'complete') {
+      initializeApp();
+    } else {
+      window.addEventListener('load', initializeApp);
+    }
+  </script>
+</body>
+</html>
